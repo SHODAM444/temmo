@@ -1,5 +1,5 @@
 #依赖QT5
-#代码仍在更新，完善在打包
+#代码不完善
 import sys
 import psutil
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTableWidget,
