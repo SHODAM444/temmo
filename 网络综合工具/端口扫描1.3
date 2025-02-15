@@ -1,0 +1,253 @@
+#!/usr/bin/env python3.12
+# -*- coding: utf-8 -*-
+#依赖 pip install rich
+
+import asyncio
+import ipaddress
+import socket
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from rich.console import Console
+from rich.progress import Progress
+from rich.table import Table
+from rich.prompt import Prompt, IntPrompt, Confirm
+
+console = Console()
+executor = ThreadPoolExecutor(max_workers=500)  # 线程池处理并发的端口扫描
+
+
+class PortScanner:
+    def __init__(self):
+        # 扫描类型
+        self.scan_types = {
+            1: "快速扫描 (常用端口)",
+            2: "全端口扫描",
+            3: "自定义范围扫描",
+            0: "返回主菜单"
+        }
+        # 主菜单选项
+        self.main_menu = {
+            1: "开始新扫描",
+            2: "查看历史记录",
+            3: "退出程序"
+        }
+        # 常用端口
+        self.common_ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 465, 587, 993, 995, 3306, 3389]
+        # 历史记录
+        self.history = []
+
+    async def show_main_menu(self):
+        """
+        显示主菜单，提供用户选择
+        """
+        console.clear()  # 清除控制台
+        console.rule("[bold blue]主菜单")  # 输出菜单标题
+        table = Table(show_header=False, show_lines=True)  # 使用 rich.table 来创建菜单表格
+        for num, desc in self.main_menu.items():
+            table.add_row(f"[bold yellow]{num}", desc)  # 菜单项
+        console.print(table)  # 打印表格
+        return IntPrompt.ask("请输入选择编号", choices=[str(x) for x in self.main_menu.keys()])  # 获取用户输入
+
+    async def validate_ip(self, ip_str):
+        """
+        校验IP地址格式
+        """
+        try:
+            return str(ipaddress.ip_address(ip_str))  # 尝试将字符串转为合法的 IP 地址
+        except ValueError:
+            console.print("[bold red]错误: 无效的IP地址格式! 正确示例: 192.168.1.1[/bold red]")  # 错误提示
+            return None
+
+    async def validate_ports(self, port_range):
+        """
+        校验端口范围格式
+        """
+        try:
+            if '-' not in port_range:
+                raise ValueError("缺少分隔符")
+
+            start, end = map(int, port_range.split('-'))  # 端口范围
+            if 1 <= start <= end <= 65535:  # 端口范围必须在 1 - 65535 之间
+                return list(range(start, end + 1))
+            console.print(f"[bold red]错误: 无效范围 {start}-{end} (必须 1-65535)[/bold red]")
+        except ValueError:
+            console.print("[bold red]错误: 无效格式! 正确示例: 1-100 或 80-443[/bold red]")
+        return None
+
+    def scan_port(self, ip, port, progress, task):
+        """
+        执行端口扫描，检查指定的端口是否开放
+        """
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)  # 设置连接超时为1秒
+                result = s.connect_ex((ip, port))  # 尝试连接指定 IP 和端口
+                if result == 0:  # 如果连接成功，返回端口和服务
+                    try:
+                        service = socket.getservbyport(port, 'tcp')  # 获取服务名
+                    except:
+                        service = "unknown"  # 如果无法获取服务名，则为 "unknown"
+                    return (port, service)
+        except:
+            return None
+        finally:
+            progress.update(task, advance=1)  # 更新扫描进度
+
+    async def start_scan(self, ip, ports):
+        """
+        启动扫描，扫描指定IP和端口列表，返回开放端口
+        """
+        open_ports = []
+        with Progress() as progress:  # 使用 rich 库的 Progress 来显示进度条
+            task = progress.add_task(f"[cyan]扫描 {ip}...", total=len(ports))  # 进度任务
+            loop = asyncio.get_running_loop()  # 获取当前事件循环
+
+            futures = [
+                loop.run_in_executor(
+                    executor,
+                    self.scan_port,
+                    ip, port, progress, task  # 使用线程池执行端口扫描
+                )
+                for port in ports
+            ]
+
+            for future in asyncio.as_completed(futures):  # 等待扫描结果
+                result = await future
+                if result:
+                    open_ports.append(result)  # 如果端口开放，添加到结果列表中
+
+        # 将扫描结果记录到历史记录中
+        self.history.append({
+            "ip": ip,
+            "ports": ports,
+            "results": open_ports,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        return open_ports
+
+    async def select_scan_type(self):
+        """
+        选择扫描类型
+        """
+        console.rule("[bold blue]选择扫描类型")  # 显示标题
+        table = Table(show_header=False, show_lines=True)
+        for num, desc in self.scan_types.items():
+            color = "yellow" if num != 0 else "red"  # 选择项不同颜色
+            table.add_row(f"[bold {color}]{num}", desc)
+        console.print(table)  # 打印扫描类型表格
+
+        choice = IntPrompt.ask("请输入选择编号", choices=[str(x) for x in self.scan_types.keys()])
+        if choice == 0:
+            return None
+        return choice
+
+    async def get_ports(self, choice):
+        """
+        获取用户选择的端口范围
+        """
+        if choice == 1:
+            return self.common_ports  # 返回常用端口
+        elif choice == 2:
+            return list(range(1, 65536))  # 返回全端口扫描
+        else:
+            while True:
+                ports_input = Prompt.ask("输入端口范围 ([bold]格式: 起始-结束[/bold], 例如 1-100)")
+                if ports_input.lower() == 'back':
+                    return None
+                ports = await self.validate_ports(ports_input)
+                if ports:
+                    return ports
+
+    async def show_results(self, ip, results):
+        """
+        显示扫描结果
+        """
+        console.rule(f"[bold green]扫描结果 - {ip}")  # 显示扫描结果标题
+        if not results:
+            console.print("[bold red]未发现开放端口[/bold red]")  # 如果没有发现开放端口，显示提示
+            return
+
+        table = Table(show_header=True, header_style="bold magenta")  # 创建表格显示扫描结果
+        table.add_column("端口", justify="right")
+        table.add_column("服务", justify="left")
+        table.add_column("状态", justify="center")
+
+        for port, service in sorted(results):  # 按端口排序显示结果
+            table.add_row(
+                str(port),
+                service,
+                "[bold green]OPEN[/bold green]"
+            )
+        console.print(table)  # 打印结果表格
+        console.print(f"\n[dim]本次扫描发现 {len(results)} 个开放端口[/dim]")  # 显示发现的开放端口数量
+
+    async def show_history(self):
+        """
+        显示历史扫描记录
+        """
+        console.rule("[bold blue]历史记录")  # 显示历史记录标题
+        if not self.history:
+            console.print("[yellow]暂无历史记录[/yellow]")  # 如果没有历史记录，显示提示
+            return
+
+        for index, record in enumerate(self.history[::-1], 1):  # 反向显示历史记录
+            console.print(f"[bold cyan]{index}. {record['time']}[/bold cyan]")  # 显示时间
+            console.print(f"目标IP: {record['ip']}")  # 显示扫描的IP
+            console.print(f"扫描端口数: {len(record['ports'])}")  # 显示扫描的端口数
+            console.print(f"开放端口: {len(record['results'])}\n")  # 显示开放端口数
+
+    async def scan_workflow(self):
+        """
+        执行完整的扫描流程
+        """
+        while True:
+            # IP地址输入部分
+            while True:
+                ip_input = Prompt.ask("输入目标IP地址 (输入 back 返回)")
+                if ip_input.lower() == 'back':
+                    return
+                ip = await self.validate_ip(ip_input)
+                if ip:
+                    break
+
+            # 扫描类型
+            scan_type = await self.select_scan_type()
+            if scan_type is None:  # 用户选择返回
+                continue
+
+            # 端口范围
+            ports = await self.get_ports(scan_type)
+            if ports is None:  # 用户选择返回
+                continue
+
+            # 执行扫描
+            console.rule()
+            results = await self.start_scan(ip, ports)
+            await self.show_results(ip, results)
+
+            # 扫描判断
+            if not Confirm.ask("是否继续扫描?", default=True):
+                break
+
+    async def run(self):
+        console.print("[bold blue]▄▄▄▄▄▄▄ 端口扫描器 1.3 ▄▄▄▄▄▄▄[/bold blue]\n")
+        while True:
+            choice = await self.show_main_menu()  # 显示主菜单
+
+            if choice == 1:
+                await self.scan_workflow()  # 执行扫描工作流
+            elif choice == 2:
+                await self.show_history()  # 历史记录
+                Prompt.ask("\n按回车键返回主菜单")
+            elif choice == 3:
+                if Confirm.ask("确定要退出吗?"):  # 确认退出
+                    console.print("[bold green]感谢使用![/bold green]")
+                    return
+
+
+if __name__ == "__main__":
+    scanner = PortScanner()  # 扫描器实例
+    try:
+        asyncio.run(scanner.run())  # 运行
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]操作被用户终止![/bold yellow]")  # 处理用户中断
