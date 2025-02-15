@@ -1,0 +1,151 @@
+#依赖pip install pycryptodome
+import base64
+import random
+from Crypto.Cipher import AES, PKCS1_OAEP
+from Crypto.PublicKey import RSA
+from Crypto.Random import get_random_bytes
+from Crypto.Util.Padding import pad, unpad
+
+# 凯撒密码
+def caesar_cipher(text, shift, encrypt=True):
+    if not encrypt:
+        shift = -shift
+    result = []
+    for char in text:
+        if char.isalpha():
+            base = ord('A') if char.isupper() else ord('a')
+            result.append(chr((ord(char) - base + shift) % 26 + base))
+        else:
+            result.append(char)
+    return ''.join(result)
+
+# 维吉尼亚密码
+def vigenere_cipher(text, key, encrypt=True):
+    key = key.upper()
+    key_len = len(key)
+    result = []
+    key_index = 0
+    for char in text:
+        if char.isalpha():
+            shift = ord(key[key_index % key_len]) - ord('A')
+            if not encrypt:
+                shift = -shift
+            base = ord('A') if char.isupper() else ord('a')
+            result.append(chr((ord(char) - base + shift) % 26 + base))
+            key_index += 1
+        else:
+            result.append(char)
+    return ''.join(result)
+
+# AES加密
+def aes_encrypt(text, key):
+    key = pad(key.encode(), AES.block_size)
+    iv = get_random_bytes(AES.block_size)
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    ciphertext = cipher.encrypt(pad(text.encode(), AES.block_size))
+    return base64.b64encode(iv + ciphertext).decode()
+
+def aes_decrypt(encrypted, key, encoded=None):
+    data = base64.b64decode(encoded)
+    iv = data[:AES.block_size]
+    key = pad(key.encode(), AES.block_size)
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    return unpad(cipher.decrypt(data[AES.block_size:]), AES.block_size).decode()
+
+# RSA加密
+def generate_rsa_keys():
+    key = RSA.generate(2048)
+    private_key = key.export_key()
+    public_key = key.publickey().export_key()
+    return public_key, private_key
+
+def rsa_encrypt(text, public_key):
+    rsa_key = RSA.import_key(public_key)
+    cipher = PKCS1_OAEP.new(rsa_key)
+    return base64.b64encode(cipher.encrypt(text.encode())).decode()
+
+def rsa_decrypt(encrypted, private_key):
+    rsa_key = RSA.import_key(private_key)
+    cipher = PKCS1_OAEP.new(rsa_key)
+    return cipher.decrypt(base64.b64decode(encrypted)).decode()
+
+# 菜单系统
+def main_menu():
+    while True:
+        print("\n=== 加密方法选择 ===")
+        print("1. 凯撒密码")
+        print("2. 维吉尼亚密码")
+        print("3. AES加密")
+        print("4. RSA加密")
+        print("5. Base64编码")
+        print("0. 退出")
+        choice = input("请选择加密方法：")
+
+        if choice == '0':
+            break
+        elif choice == '1':
+            handle_caesar()
+        elif choice == '2':
+            handle_vigenere()
+        elif choice == '3':
+            handle_aes()
+        elif choice == '4':
+            handle_rsa()
+        elif choice == '5':
+            handle_base64()
+        else:
+            print("无效选项，请重新输入")
+
+def handle_caesar():
+    text = input("输入文本：")
+    shift = int(input("输入位移量："))
+    mode = input("加密(E)还是解密(D)：").upper()
+    result = caesar_cipher(text, shift, mode == 'E')
+    print(f"结果：{result}")
+
+def handle_vigenere():
+    text = input("输入文本：")
+    key = input("输入密钥：")
+    mode = input("加密(E)还是解密(D)：").upper()
+    result = vigenere_cipher(text, key, mode == 'E')
+    print(f"结果：{result}")
+
+def handle_aes():
+    text = input("输入文本：")
+    key = input("输入密钥：")
+    mode = input("加密(E)还是解密(D)：").upper()
+    try:
+        if mode == 'E':
+            result = aes_encrypt(text, key)
+        else:
+            result = aes_decrypt(text, key)
+        print(f"结果：{result}")
+    except Exception as e:
+        print(f"错误：{str(e)}")
+
+def handle_rsa():
+    mode = input("生成密钥对(G)/加密(E)/解密(D)：").upper()
+    if mode == 'G':
+        pub, priv = generate_rsa_keys()
+        print(f"公钥：\n{pub.decode()}")
+        print(f"私钥：\n{priv.decode()}")
+    else:
+        text = input("输入文本：")
+        if mode == 'E':
+            pub_key = input("输入公钥：")
+            print(f"加密结果：{rsa_encrypt(text, pub_key)}")
+        elif mode == 'D':
+            priv_key = input("输入私钥：")
+            print(f"解密结果：{rsa_decrypt(text, priv_key)}")
+
+def handle_base64():
+    text = input("输入文本：")
+    mode = input("编码(E)还是解码(D)：").upper()
+    if mode == 'E':
+        result = base64.b64encode(text.encode()).decode()
+    else:
+        result = base64.b64decode(text).decode()
+    print(f"结果：{result}")
+
+if __name__ == "__main__":
+    main_menu()
