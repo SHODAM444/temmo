@@ -1,0 +1,139 @@
+import sys
+import psutil
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QTableWidget,
+                             QTableWidgetItem, QHeaderView, QVBoxLayout,
+                             QWidget, QAbstractItemView)
+from PyQt5.QtCore import Qt, QTimer, QSize
+from PyQt5.QtGui import QColor, QBrush
+
+
+class SystemMonitor(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Windows资源监控')
+        self.setMinimumSize(QSize(800, 600))  #尺寸
+
+        # 初始
+        self.init_ui()
+
+        # 进程缓存优化
+        self.process_cache = {}
+
+        # 设置定时器（降低到1秒刷新）
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_process_data)
+        self.timer.start(1000)
+
+        # 首次加载数据
+        self.update_process_data()
+
+    def init_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+
+        # 创建表格控件
+        self.table = QTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels([
+            'PID', '进程名', 'CPU占用率 (%)', '内存占用 (MB)', '状态', '用户'
+        ])
+
+        # 表格设置
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.setFocusPolicy(Qt.NoFocus)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
+
+        # 列宽
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # PID列自适应
+        header.setSectionResizeMode(1, QHeaderView.Stretch)  # 进程名自动拉伸
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # CPU列自适应
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # 内存列自适应
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # 状态列自适应
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # 用户列自适应
+
+        layout.addWidget(self.table)
+
+    def get_process_info(self):
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_info', 'status', 'username']):
+            try:
+                mem_usage = proc.info['memory_info'].rss / (1024 ** 2)
+                processes.append({
+                    'pid': proc.info['pid'],
+                    'name': proc.info['name'],
+                    'cpu': proc.info['cpu_percent'],
+                    'memory': round(mem_usage, 1),
+                    'status': proc.info['status'],
+                    'user': proc.info['username'] or 'SYSTEM'
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        # 按CPU占用率降序排序并限制显示数量
+        return sorted(processes, key=lambda x: x['cpu'], reverse=True)[:50]  # 只显示前50个进程
+
+    def update_process_data(self):
+        processes = self.get_process_info()
+
+        # 现有行
+        current_rows = self.table.rowCount()
+        new_rows = len(processes)
+
+        # 调整行数
+        if new_rows > current_rows:
+            self.table.setRowCount(new_rows)
+        elif new_rows < current_rows:
+            self.table.setRowCount(new_rows)
+
+        # 高亮阈值
+        cpu_warning = 50
+        mem_warning = 500
+
+        for row in range(len(processes)):
+            proc = processes[row]
+
+            # 表格项
+            items = [
+                self.table.item(row, 0) or QTableWidgetItem(),
+                self.table.item(row, 1) or QTableWidgetItem(),
+                self.table.item(row, 2) or QTableWidgetItem(),
+                self.table.item(row, 3) or QTableWidgetItem(),
+                self.table.item(row, 4) or QTableWidgetItem(),
+                self.table.item(row, 5) or QTableWidgetItem()
+            ]
+
+            # 更新数据
+            items[0].setText(str(proc['pid']))
+            items[1].setText(proc['name'])
+            items[2].setText(f"{proc['cpu']:.1f}")
+            items[3].setText(str(proc['memory']))
+            items[4].setText(proc['status'])
+            items[5].setText(proc['user'])
+
+            # 对齐
+            for item in items:
+                item.setTextAlignment(Qt.AlignCenter)
+
+                # 高亮样式
+                item.setBackground(QBrush())
+
+            if proc['cpu'] >= cpu_warning or proc['memory'] >= mem_warning:
+                warning_color = QBrush(QColor(255, 100, 100, 150))
+                items[2].setBackground(warning_color)
+                items[3].setBackground(warning_color)
+
+            # 第一次创建时设置item
+            if not self.table.item(row, 0):
+                for col in range(6):
+                    self.table.setItem(row, col, items[col])
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    monitor = SystemMonitor()
+    monitor.show()
+    sys.exit(app.exec_())
