@@ -6,7 +6,7 @@ from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad, unpad
 
-# 凯撒密码
+# 凯撒
 def caesar_cipher(text, shift, encrypt=True):
     if not encrypt:
         shift = -shift
@@ -19,7 +19,7 @@ def caesar_cipher(text, shift, encrypt=True):
             result.append(char)
     return ''.join(result)
 
-# 维吉尼亚密码
+# 维吉尼亚
 def vigenere_cipher(text, key, encrypt=True):
     key = key.upper()
     key_len = len(key)
@@ -37,7 +37,7 @@ def vigenere_cipher(text, key, encrypt=True):
             result.append(char)
     return ''.join(result)
 
-# AES加密
+# AES
 def aes_encrypt(text, key):
     key = pad(key.encode(), AES.block_size)
     iv = get_random_bytes(AES.block_size)
@@ -52,7 +52,7 @@ def aes_decrypt(encrypted, key, encoded=None):
     cipher = AES.new(key, AES.MODE_CBC, iv)
     return unpad(cipher.decrypt(data[AES.block_size:]), AES.block_size).decode()
 
-# RSA加密
+# RSA
 def generate_rsa_keys():
     key = RSA.generate(2048)
     private_key = key.export_key()
@@ -69,7 +69,7 @@ def rsa_decrypt(encrypted, private_key):
     cipher = PKCS1_OAEP.new(rsa_key)
     return cipher.decrypt(base64.b64decode(encrypted)).decode()
 
-# 菜单系统
+# 菜单
 def main_menu():
     while True:
         print("\n=== 加密方法选择 ===")
